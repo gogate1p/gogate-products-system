@@ -1,0 +1,564 @@
+// Gogate Products — marketplace + courier management
+// Domain: gogateproducts.store
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  SUPPORT
+  SELLER
+  CUSTOMER
+  HUB_MANAGER
+  DELIVERY_AGENT
+}
+
+enum AccountStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+  DISABLED
+  REJECTED
+}
+
+enum KycStatus {
+  NOT_STARTED
+  DOCUMENTS_PENDING
+  DIDIT_PENDING
+  UNDER_REVIEW
+  VERIFIED
+  REJECTED
+}
+
+enum ProductApprovalStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+}
+
+enum OrderStatus {
+  PLACED
+  PAYMENT_PENDING
+  PAID
+  SELLER_PENDING
+  SELLER_ACCEPTED
+  SELLER_PROCESSING
+  COURIER_BOOKING
+  PICKUP_SCHEDULED
+  PICKED_UP
+  SHIPPED
+  IN_TRANSIT
+  OUT_FOR_DELIVERY
+  DELIVERED
+  CANCELLED
+  RETURN_REQUESTED
+  RETURNED
+  REPLACEMENT
+}
+
+enum ShipmentStatus {
+  BOOKED
+  PICKUP_SCHEDULED
+  PICKED_UP
+  AT_SELLER_HUB
+  IN_TRANSIT
+  AT_HUB
+  OUT_FOR_DELIVERY
+  DELIVERED
+  RETURNED
+  CANCELLED
+}
+
+enum PaymentProvider {
+  RAZORPAY
+  PAYU
+  EASEBUZZ
+  COD
+  WALLET
+}
+
+enum CourierProvider {
+  GOGATE
+  SHIPROCKET
+  NIMBUSPOST
+  SHIPDAY
+  ZIPPYKIND
+  DELIFORCE
+}
+
+enum FulfillmentType {
+  HOME_DELIVERY
+  STORE_PICKUP
+  HYPERLOCAL
+}
+
+model User {
+  id            String        @id @default(cuid())
+  email         String        @unique
+  phone         String?       @unique
+  passwordHash  String
+  role          UserRole
+  status        AccountStatus @default(PENDING)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  sellerProfile     SellerProfile?
+  customerProfile   CustomerProfile?
+  hubManager        Hub?              @relation("HubManager")
+  deliveryAgent     DeliveryAgent?
+  supportTickets    SupportTicket[]   @relation("SupportAgent")
+  customerTickets   SupportTicket[]   @relation("CustomerUser")
+  wallet            Wallet?
+  addresses         Address[]
+  reviews           Review[]
+  chatSessions      ChatSession[]
+}
+
+model SellerProfile {
+  id              String        @id @default(cuid())
+  userId          String        @unique
+  user            User          @relation(fields: [userId], references: [id])
+  sellerId        String        @unique // display ID e.g. GP-SELLER-00001
+  businessName    String
+  ownerName       String
+  gstin           String?
+  pan             String?
+  address         String
+  pincode         String
+  kycStatus       KycStatus     @default(NOT_STARTED)
+  verifiedAt      DateTime?
+  verifiedBy      String?
+  bankAccountNo   String?
+  bankIfsc        String?
+  bankHolderName  String?
+  diditCkycId     String?
+  subscriptionId  String?
+  ratingAvg       Float         @default(0)
+  ratingCount     Int           @default(0)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  documents       SellerDocument[]
+  products        Product[]
+  orders          Order[]
+  payouts         SellerPayout[]
+  subscriptions   SellerSubscription[]
+}
+
+model SellerDocument {
+  id        String   @id @default(cuid())
+  sellerId  String
+  seller    SellerProfile @relation(fields: [sellerId], references: [id])
+  type      String   // PAN, GST, AADHAAR, BANK_PROOF, etc.
+  url       String
+  verified  Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model CustomerProfile {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id])
+  fullName  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  orders    Order[]
+  wishlist  WishlistItem[]
+}
+
+model Hub {
+  id            String        @id @default(cuid())
+  hubId         String        @unique // auto GP-HUB-00001
+  name          String
+  address       String
+  pincode       String
+  radiusKm      Float
+  areaGeoJson   String?       // serviceable polygon
+  managerUserId String?       @unique
+  manager       User?         @relation("HubManager", fields: [managerUserId], references: [id])
+  email         String
+  phone         String
+  status        AccountStatus @default(PENDING)
+  kycStatus     KycStatus     @default(NOT_STARTED)
+  diditCkycId   String?
+  activatedAt   DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  agents        DeliveryAgent[]
+  shipments     Shipment[]
+  vehicles      Vehicle[]
+  scanEvents    HubScanEvent[]
+}
+
+model DeliveryAgent {
+  id            String        @id @default(cuid())
+  userId        String        @unique
+  user          User          @relation(fields: [userId], references: [id])
+  agentId       String        @unique // GP-AGENT-00001
+  hubId         String?
+  hub           Hub?          @relation(fields: [hubId], references: [id])
+  kycStatus     KycStatus     @default(NOT_STARTED)
+  diditCkycId   String?
+  status        AccountStatus @default(PENDING)
+  workingSlots  Json?         // daily time slots
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  deliveries    ShipmentLeg[]
+  hubCheckIns   HubCheckIn[]
+}
+
+model HubCheckIn {
+  id        String   @id @default(cuid())
+  agentId   String
+  agent     DeliveryAgent @relation(fields: [agentId], references: [id])
+  hubId     String
+  scannedAt DateTime @default(now())
+}
+
+model Product {
+  id                String                @id @default(cuid())
+  sellerId          String
+  seller            SellerProfile         @relation(fields: [sellerId], references: [id])
+  title             String
+  description       String                @db.Text
+  specifications    Json?
+  manufacturer      String?
+  packerDetails     String?
+  price             Decimal               @db.Decimal(12, 2)
+  weightGrams       Int
+  lengthCm          Float
+  breadthCm         Float
+  heightCm          Float
+  widthCm           Float?
+  manufacturerAddress String?
+  manufacturerPincode String?
+  returnable        Boolean               @default(false)
+  cancellable       Boolean               @default(true)
+  replaceable       Boolean               @default(false)
+  approvalStatus    ProductApprovalStatus @default(DRAFT)
+  approvedAt        DateTime?
+  approvedBy        String?
+  aiVerified        Boolean               @default(false) // no-AI white-bg check
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+
+  images            ProductMedia[]
+  orderItems        OrderItem[]
+  reviews           Review[]
+  wishlist          WishlistItem[]
+}
+
+model ProductMedia {
+  id        String   @id @default(cuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id])
+  url       String
+  type      String   // IMAGE | VIDEO
+  sortOrder Int      @default(0)
+  whiteBgOk Boolean  @default(false)
+}
+
+model Order {
+  id              String          @id @default(cuid())
+  orderNumber     String          @unique // 12-digit display ID
+  customerId      String
+  customer        CustomerProfile @relation(fields: [customerId], references: [id])
+  sellerId        String
+  seller          SellerProfile   @relation(fields: [sellerId], references: [id])
+  status          OrderStatus     @default(PLACED)
+  fulfillment     FulfillmentType @default(HOME_DELIVERY)
+  subStatus       String?         // e.g. "Seller is processing your order"
+  slaHours        Int?
+  processingEta   DateTime?
+  deliveryPincode String
+  estimatedDelivery DateTime?
+  couponId        String?
+  coupon          Coupon?         @relation(fields: [couponId], references: [id])
+  totalAmount     Decimal         @db.Decimal(12, 2)
+  codAmount       Decimal?        @db.Decimal(12, 2)
+  placedAt        DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  items           OrderItem[]
+  statusHistory   OrderStatusHistory[]
+  payment         Payment?
+  shipment        Shipment?
+  storePickup     StorePickup?
+}
+
+model OrderItem {
+  id              String   @id @default(cuid())
+  orderId         String
+  order           Order    @relation(fields: [orderId], references: [id])
+  productId       String
+  product         Product  @relation(fields: [productId], references: [id])
+  quantity        Int
+  unitPrice       Decimal  @db.Decimal(12, 2)
+  returnEligible  Boolean  @default(false)
+  cancelEligible  Boolean  @default(false)
+  replaceEligible Boolean  @default(false)
+}
+
+model OrderStatusHistory {
+  id        String      @id @default(cuid())
+  orderId   String
+  order     Order       @relation(fields: [orderId], references: [id])
+  status    OrderStatus
+  message   String?
+  createdAt DateTime    @default(now())
+}
+
+model Payment {
+  id          String          @id @default(cuid())
+  orderId     String          @unique
+  order       Order           @relation(fields: [orderId], references: [id])
+  provider    PaymentProvider
+  externalId  String?
+  amount      Decimal         @db.Decimal(12, 2)
+  status      String          // created | captured | failed | refunded
+  metadata    Json?
+  createdAt   DateTime        @default(now())
+}
+
+model Coupon {
+  id            String    @id @default(cuid())
+  code          String    @unique
+  discountType  String    // PERCENT | FLAT
+  discountValue Decimal   @db.Decimal(12, 2)
+  minOrder      Decimal?  @db.Decimal(12, 2)
+  maxUses       Int?
+  usedCount     Int       @default(0)
+  validFrom     DateTime
+  validTo       DateTime
+  active        Boolean   @default(true)
+  orders        Order[]
+}
+
+model Wallet {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id])
+  balance   Decimal  @db.Decimal(12, 2) @default(0)
+  ledger    WalletTransaction[]
+}
+
+model WalletTransaction {
+  id        String   @id @default(cuid())
+  walletId  String
+  wallet    Wallet   @relation(fields: [walletId], references: [id])
+  amount    Decimal  @db.Decimal(12, 2)
+  type      String   // CREDIT | DEBIT
+  reference String?
+  createdAt DateTime @default(now())
+}
+
+model Address {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  label     String?
+  line1     String
+  line2     String?
+  city      String
+  state     String
+  pincode   String
+  isDefault Boolean  @default(false)
+}
+
+model WishlistItem {
+  id         String          @id @default(cuid())
+  customerId String
+  customer   CustomerProfile @relation(fields: [customerId], references: [id])
+  productId  String
+  product    Product         @relation(fields: [productId], references: [id])
+  createdAt  DateTime        @default(now())
+
+  @@unique([customerId, productId])
+}
+
+model Review {
+  id         String   @id @default(cuid())
+  productId  String
+  product    Product  @relation(fields: [productId], references: [id])
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  rating     Int      // 1-5
+  comment    String?  @db.Text
+  createdAt  DateTime @default(now())
+}
+
+model SupportTicket {
+  id          String   @id @default(cuid())
+  customerId  String
+  customer    User     @relation("CustomerUser", fields: [customerId], references: [id])
+  agentId     String?
+  agent       User?    @relation("SupportAgent", fields: [agentId], references: [id])
+  subject     String
+  body        String   @db.Text
+  status      String   @default("OPEN")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model ChatSession {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  messages  Json[]
+  createdAt DateTime @default(now())
+}
+
+model Shipment {
+  id              String          @id @default(cuid())
+  shipmentNumber  String          @unique
+  orderId         String?         @unique
+  order           Order?          @relation(fields: [orderId], references: [id])
+  hubId           String?
+  hub             Hub?            @relation(fields: [hubId], references: [id])
+  courier         CourierProvider @default(GOGATE)
+  externalAwbn    String?
+  labelUrl        String?
+  manifestUrl     String?
+  status          ShipmentStatus  @default(BOOKED)
+  pickupDate      DateTime?
+  deliveryDate    DateTime?
+  codCollected    Boolean         @default(false)
+  codQrPaidAt     DateTime?
+  routePlan       Json?           // hub-to-hub legs JSON
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  legs            ShipmentLeg[]
+  trackingEvents  TrackingEvent[]
+}
+
+model ShipmentLeg {
+  id          String        @id @default(cuid())
+  shipmentId  String
+  shipment    Shipment      @relation(fields: [shipmentId], references: [id])
+  sequence    Int
+  fromHubId   String?
+  toHubId     String?
+  agentId     String?
+  agent       DeliveryAgent? @relation(fields: [agentId], references: [id])
+  vehicleId   String?
+  vehicle     Vehicle?      @relation(fields: [vehicleId], references: [id])
+  status      ShipmentStatus
+  scheduledAt DateTime?
+  completedAt DateTime?
+}
+
+model TrackingEvent {
+  id          String         @id @default(cuid())
+  shipmentId  String
+  shipment    Shipment       @relation(fields: [shipmentId], references: [id])
+  status      ShipmentStatus
+  location    String?
+  description String?
+  source      CourierProvider?
+  rawPayload  Json?
+  createdAt   DateTime       @default(now())
+}
+
+model HubScanEvent {
+  id         String   @id @default(cuid())
+  hubId      String
+  hub        Hub      @relation(fields: [hubId], references: [id])
+  shipmentId String
+  scanType   String   // INBOUND | OUTBOUND | SORT
+  scannedAt  DateTime @default(now())
+}
+
+model Vehicle {
+  id        String   @id @default(cuid())
+  hubId     String
+  hub       Hub      @relation(fields: [hubId], references: [id])
+  regNumber String
+  type      String   // TRUCK | VAN | BIKE
+  capacity  String?
+  active    Boolean  @default(true)
+  legs      ShipmentLeg[]
+}
+
+model StorePickup {
+  id          String   @id @default(cuid())
+  orderId     String   @unique
+  order       Order    @relation(fields: [orderId], references: [id])
+  hubId       String
+  readyAt     DateTime?
+  pickedUpAt  DateTime?
+}
+
+model PincodeServiceability {
+  id        String          @id @default(cuid())
+  pincode   String
+  provider  CourierProvider
+  available Boolean         @default(true)
+  etaDays   Int?
+  updatedAt DateTime        @updatedAt
+
+  @@unique([pincode, provider])
+}
+
+model SellerPayout {
+  id        String        @id @default(cuid())
+  sellerId  String
+  seller    SellerProfile @relation(fields: [sellerId], references: [id])
+  amount    Decimal       @db.Decimal(12, 2)
+  status    String
+  reference String?
+  createdAt DateTime      @default(now())
+}
+
+model SellerSubscription {
+  id        String        @id @default(cuid())
+  sellerId  String
+  seller    SellerProfile @relation(fields: [sellerId], references: [id])
+  plan      String
+  validTo   DateTime
+  active    Boolean       @default(true)
+}
+
+model CmsPage {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  title     String
+  content   String   @db.Text
+  published Boolean  @default(false)
+  updatedAt DateTime @updatedAt
+}
+
+model CmsBanner {
+  id        String   @id @default(cuid())
+  title     String
+  imageUrl  String
+  linkUrl   String?
+  sortOrder Int      @default(0)
+  active    Boolean  @default(true)
+}
+
+model CmsSlider {
+  id        String   @id @default(cuid())
+  title     String
+  slides    Json     // [{ image, link, caption }]
+  active    Boolean  @default(true)
+}
+
+model ApiCredential {
+  id        String   @id @default(cuid())
+  key       String   @unique // RAZORPAY_KEY_ID, SHIPROCKET_EMAIL, etc.
+  value     String   @db.Text
+  encrypted Boolean  @default(true)
+  updatedAt DateTime @updatedAt
+}

@@ -1,0 +1,9 @@
+.seller-shell { display: flex; min-height: 100vh; font-family: system-ui, sans-serif; }
+.seller-shell aside { width: 220px; background: #2e7d32; color: #fff; padding: 1rem; }
+.seller-shell aside a { display: block; color: #c8e6c9; text-decoration: none; padding: 0.35rem 0; font-size: 0.9rem; }
+.seller-shell aside a:hover { color: #fff; }
+.seller-shell main { flex: 1; padding: 1.5rem; background: #f1f8e9; }
+.bucket-tabs { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 1rem; }
+.bucket-tabs a { padding: 0.35rem 0.75rem; background: #fff; border-radius: 4px; text-decoration: none; font-size: 0.85rem; color: #1b5e20; }
+.onboarding-steps { counter-reset: step; }
+.onboarding-steps li { margin: 0.5rem 0; }

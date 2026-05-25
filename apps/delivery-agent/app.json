@@ -1,0 +1,11 @@
+{
+  "expo": {
+    "name": "Gogate Delivery Agent",
+    "slug": "gogate-delivery-agent",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "gogate-agent",
+    "userInterfaceStyle": "light",
+    "platforms": ["ios", "android"]
+  }
+}
